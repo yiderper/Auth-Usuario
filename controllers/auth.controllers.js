@@ -1,7 +1,10 @@
 
 const { response  } = require('express');
 const { validationResult } = require('express-validator');
-const Usuario = require('../models/Usuario')
+const Usuario = require('../models/Usuario');
+const bcrypt = require('bcryptjs'); // Para encriptar
+const { generarJWT } = require('../helpers/jwt');
+
 
 const crearUsuario = async (req, res = response) => {
 
@@ -27,11 +30,12 @@ const crearUsuario = async (req, res = response) => {
     // Crear usuario con el modelo
     const dbUser = new Usuario( req.body );
 
-
-
-    // Hasher la contraeña
+    //hasher la contraeña
+    const salt = bcrypt.genSaltSync(10); //Crea la contraseña con 10 vueltas
+    dbUser.password = bcrypt.hashSync( password, salt );
 
     // Generar el Jsonwebtoken
+    const token = await generarJWT(dbUser.id, name);   
 
     // Crear usuario de BD Grabar
     await dbUser.save();
@@ -41,6 +45,7 @@ const crearUsuario = async (req, res = response) => {
         ok: true,
         uid : dbUser.id,
         name,
+        token
     });
 
     } catch (error){
@@ -52,25 +57,72 @@ const crearUsuario = async (req, res = response) => {
     }    
 }
 
-const loginUsuario = (req, res = response) => {
-
-    //Le req mando como argumento
-    const errors = validationResult( req );   
+const loginUsuario = async(req, res = response) => {
 
     const {email,password} = req.body;
-    //console.log( email,password);
 
-    return res.json({
-        ok: true,
-        msg:'Login de Usuario /'
-    });
+    try{
+
+        const dbUser = await Usuario.findOne( {email});
+
+        if ( !dbUser ){ // Si no esta el email es incorrecto
+           return res.status(400).json({
+                ok: false,
+                msg : 'El Correo No Existe'
+           });
+        }
+
+        //Si Existe
+        // confirmar si el passarod  hace match
+        // compareSync: confirma si la contraseña que esta almacenada
+        // es igual a la nueva ingresada
+        const validPassword = bcrypt.compareSync( password, dbUser.password )
+
+        if ( !validPassword ){
+            return res.status(400).json({
+                ok: false,
+                msg: 'El password no es valido'
+            });
+        }
+
+        // El Usuario y La contraaseña son validos
+        // Genearmos el JWT
+        const token = await generarJWT(dbUser.id, dbUser.name);   
+
+        //Respues del serviio
+        return res.json({
+            ok: true,
+            uid   : dbUser.id,
+            name  : dbUser.name,
+            token  
+        });
+
+    } catch (error){
+        console.log(error);
+        return res.status(500).json({
+            ok: false,
+            msg: 'Hable con el administrador'
+        })
+
+    }
+    
 }
 
-const revalidarToken = (req, res) => {
+
+const revalidarToken = async (req, res = response ) => {
+    //Viene desde validar-jwt
+    const { uid, name  } = req;
+
+    // Generar el Jsonwebtoken
+    const token = await generarJWT(uid, name);   
+    
 
     return res.json({
         ok: true,
-        msg:'Renew'
+        uid,
+        name,
+        token
+        
     });
 }
 
